@@ -11,7 +11,14 @@ function Write-HJMLog {
         [string]$ErrorMessage = ""
     )
 
-    $logFile = Join-Path -Path $PSScriptRoot -ChildPath "HybridJoin.log"
+    # Use configured log path if set; fall back to script directory
+    $logFile = if ($HybridJoinConfig -and
+                   $HybridJoinConfig.ContainsKey('LogPath') -and
+                   -not [string]::IsNullOrWhiteSpace($HybridJoinConfig.LogPath)) {
+        $HybridJoinConfig.LogPath
+    } else {
+        Join-Path -Path $PSScriptRoot -ChildPath 'HybridJoin.log'
+    }
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $cleanError = $ErrorMessage -replace "\r|\n", " "
     $cleanError = $cleanError -replace "\|", "/"

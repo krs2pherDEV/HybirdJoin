@@ -24,13 +24,13 @@ function Invoke-DeltaSync {
         try {
             Start-ADSyncSyncCycle -PolicyType Delta
             Set-Content -Path $syncFile -Value ($now.ToString("o")) -Encoding ASCII
-            return $true
+            return [pscustomobject]@{ Triggered = $true;  Suppressed = $false; ErrorMessage = $null }
         }
         catch {
-            return $false
+            return [pscustomobject]@{ Triggered = $false; Suppressed = $false; ErrorMessage = $_.Exception.Message }
         }
     }
     else {
-        return $false
+        return [pscustomobject]@{ Triggered = $false; Suppressed = $true;  ErrorMessage = $null }
     }
 }

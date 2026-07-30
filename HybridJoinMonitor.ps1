@@ -81,19 +81,19 @@ foreach ($machine in $recentVDI) {
         $entraResult = Get-EntraDeviceStatus -ComputerName $machine.Name
         $entraReady = $entraResult.IsPresent
         $deltaTriggered = $false
+        $syncError = $null
         $reason = "NoAction"
 
         if (-not $adReady) {
             $reason = "ADNotReady"
         }
         elseif ($entraResult.Status -eq "NotFound") {
-            $deltaTriggered = Invoke-DeltaSync -MinimumIntervalMinutes $deltaSyncMinIntervalMinutes
-            if ($deltaTriggered) {
-                $reason = "DeltaSyncTriggered"
-            }
-            else {
-                $reason = "DeltaSyncSuppressedOrFailed"
-            }
+            $syncResult    = Invoke-DeltaSync -MinimumIntervalMinutes $deltaSyncMinIntervalMinutes
+            $deltaTriggered = $syncResult.Triggered
+            $syncError      = $syncResult.ErrorMessage
+            $reason = if ($syncResult.Triggered)   { "DeltaSyncTriggered" }
+                      elseif ($syncResult.Suppressed) { "DeltaSyncThrottled" }
+                      else                            { "DeltaSyncFailed"   }
         }
         else {
             if ($entraResult.Status -eq "Found") {
@@ -104,6 +104,7 @@ foreach ($machine in $recentVDI) {
             }
         }
 
+        $errorMessage = if (-not [string]::IsNullOrWhiteSpace($syncError)) { $syncError } else { $entraResult.Error }
         Write-HJMLog -ComputerName $machine.Name `
             -ADReady $adReady `
             -EntraReady $entraReady `
@@ -111,7 +112,7 @@ foreach ($machine in $recentVDI) {
             -EntraStatus $entraResult.Status `
             -EntraMatchCount $entraResult.MatchCount `
             -Reason $reason `
-            -ErrorMessage $entraResult.Error
+            -ErrorMessage $errorMessage
     }
     catch {
         Write-HJMLog -ComputerName $machine.Name `
