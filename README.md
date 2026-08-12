@@ -61,7 +61,7 @@ High-level flow in `HybridJoinMonitor.ps1`:
 - `HybridJoinMonitor.ps1` : Main controller.
 - `HybridJoinConfig.ps1` : Customer-editable configuration.
 - `Get-RecentVDI.ps1` : Finds recently created AD computer objects.
-- `Get-HybridJoinStatus.ps1` : Checks AD attributes indicating hybrid-join readiness.
+- `Get-HybridJoinStatus.ps1` : Checks for the AD computer's `userCertificate`, which indicates hybrid-join registration readiness.
 - `Get-EntraDeviceStatus.ps1` : Checks for Entra device presence and query errors.
 - `Invoke-DeltaSync.ps1` : Throttled trigger for Entra Connect delta sync.
 - `Write-HJMLog.ps1` : Appends structured records to log file.
@@ -253,6 +253,18 @@ yyyy-MM-dd HH:mm:ss | ComputerName | ADReady=<bool> | EntraReady=<bool> | DeltaT
 - Validate Graph authentication/token in run context.
 - Verify permissions and module version.
 - Check network/proxy/TLS path to Microsoft endpoints.
+
+### `ADNotReady` while the device is found in Entra
+
+- Confirm the current AD computer object has a `userCertificate`:
+
+```powershell
+Get-ADComputer -Identity "VDIComputerName" -Properties userCertificate |
+  Select-Object Name, @{Name = "UserCertificateCount"; Expression = { @($_.userCertificate).Count }}
+```
+
+- `msDS-KeyCredentialLink` is not required by this monitor. It stores key credentials used by features such as Windows Hello for Business and is not a hybrid-join readiness signal.
+- For reused VDI names, verify the Entra result is the current device rather than a stale object with the same display name.
 
 ### `DeltaSyncSuppressedOrFailed` appears often
 
