@@ -6,6 +6,7 @@ $scriptRoot = Split-Path -Parent $PSCommandPath
 . (Join-Path -Path $scriptRoot -ChildPath "HybridJoinConfig.ps1")
 . (Join-Path -Path $scriptRoot -ChildPath "Get-RecentVDI.ps1")
 . (Join-Path -Path $scriptRoot -ChildPath "Get-HybridJoinStatus.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "Get-HybridJoinState.ps1")
 . (Join-Path -Path $scriptRoot -ChildPath "Get-EntraDeviceStatus.ps1")
 . (Join-Path -Path $scriptRoot -ChildPath "Invoke-DeltaSync.ps1")
 . (Join-Path -Path $scriptRoot -ChildPath "Write-HJMLog.ps1")
@@ -52,9 +53,30 @@ if ($HybridJoinConfig -and $HybridJoinConfig.ContainsKey("DeltaSyncMinIntervalMi
 }
 
 $recentDiscovery = Get-RecentVDI -SearchBases $searchBases -RecentMinutes $recentMinutes
-$recentVDI = @($recentDiscovery.Computers)
+try {
+    $monitorState = Get-HybridJoinState
+}
+catch {
+    Write-HJMLog -ComputerName "_CONFIG_" `
+        -ADReady $false `
+        -EntraReady $false `
+        -DeltaTriggered $false `
+        -EntraStatus "ConfigError" `
+        -EntraMatchCount 0 `
+        -Reason "StateReadError" `
+        -ErrorMessage $_.Exception.Message
+    throw
+}
+$certificateState = $monitorState.Certificates
+$candidateResult = Get-HybridJoinCandidates `
+    -RecentComputers @($recentDiscovery.Computers) `
+    -CertificateComputers @($recentDiscovery.CertificateComputers) `
+    -CertificateState $certificateState
+$joinInfoByGuid = $candidateResult.JoinInfoByGuid
+$recentVDI = @($candidateResult.Computers)
+$stateChanged = $false
 
-$startupError = "RecentMinutes=$recentMinutes; DeltaSyncMinIntervalMinutes=$deltaSyncMinIntervalMinutes; SearchBaseCount=$(@($recentDiscovery.ValidSearchBases).Count); MachineCount=$($recentVDI.Count)"
+$startupError = "RecentMinutes=$recentMinutes; DeltaSyncMinIntervalMinutes=$deltaSyncMinIntervalMinutes; SearchBaseCount=$(@($recentDiscovery.ValidSearchBases).Count); RecentObjectCount=$(@($recentDiscovery.Computers).Count); CertificateObjectCount=$(@($recentDiscovery.CertificateComputers).Count); CandidateCount=$($recentVDI.Count)"
 Write-HJMLog -ComputerName "_CONFIG_" `
     -ADReady $true `
     -EntraReady $true `
@@ -77,8 +99,15 @@ foreach ($invalidBase in @($recentDiscovery.InvalidSearchBases)) {
 
 foreach ($machine in $recentVDI) {
     try {
-        $adReady = Get-HybridJoinStatus -ComputerName $machine.Name
-        $entraResult = Get-EntraDeviceStatus -ComputerName $machine.Name
+        $objectGuid = [string]$machine.ObjectGUID
+        $joinInfo = if ($joinInfoByGuid.ContainsKey($objectGuid)) {
+            $joinInfoByGuid[$objectGuid]
+        }
+        else {
+            Get-HybridJoinInfo -ADComputer $machine
+        }
+        $adReady = $joinInfo.IsReady
+        $entraResult = Get-EntraDeviceStatus -ComputerName $machine.Name -DeviceId $joinInfo.DeviceId
         $entraReady = $entraResult.IsPresent
         $deltaTriggered = $false
         $syncError = $null
@@ -98,6 +127,10 @@ foreach ($machine in $recentVDI) {
         else {
             if ($entraResult.Status -eq "Found") {
                 $reason = "AlreadyInEntra"
+                if ($adReady -and -not [string]::IsNullOrWhiteSpace($joinInfo.CertificateFingerprint)) {
+                    $certificateState[$objectGuid] = $joinInfo.CertificateFingerprint
+                    $stateChanged = $true
+                }
             }
             elseif ($entraResult.Status -eq "QueryError") {
                 $reason = "EntraQueryError"
@@ -111,6 +144,7 @@ foreach ($machine in $recentVDI) {
             -DeltaTriggered $deltaTriggered `
             -EntraStatus $entraResult.Status `
             -EntraMatchCount $entraResult.MatchCount `
+            -EntraMatchType $entraResult.MatchType `
             -Reason $reason `
             -ErrorMessage $errorMessage
     }
@@ -124,4 +158,21 @@ foreach ($machine in $recentVDI) {
             -Reason "MachineProcessingError" `
             -ErrorMessage $_.Exception.Message
         }
+}
+
+if ($stateChanged) {
+    try {
+        Save-HybridJoinState -Path $monitorState.Path -Certificates $certificateState
+    }
+    catch {
+        Write-HJMLog -ComputerName "_CONFIG_" `
+            -ADReady $false `
+            -EntraReady $false `
+            -DeltaTriggered $false `
+            -EntraStatus "ConfigError" `
+            -EntraMatchCount 0 `
+            -Reason "StateWriteError" `
+            -ErrorMessage $_.Exception.Message
+        throw
+    }
 }

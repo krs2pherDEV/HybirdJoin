@@ -9,9 +9,10 @@ function Get-RecentVDI {
     $cutoffLdap = $cutoffUtc.ToString("yyyyMMddHHmmss.0Z")
     $queryParams = @{
         LDAPFilter = "(whenCreated>=$cutoffLdap)"
-        Properties = "whenCreated"
+        Properties = "whenCreated", "userCertificate", "ObjectGUID"
     }
     $computers = @()
+    $certificateComputers = @()
     $validSearchBases = @()
     $invalidSearchBases = @()
 
@@ -38,6 +39,11 @@ function Get-RecentVDI {
         foreach ($validBase in $validSearchBases) {
             try {
                 $computers += @(Get-ADComputer @queryParams -SearchBase $validBase -ErrorAction Stop)
+                $certificateComputers += @(Get-ADComputer `
+                    -LDAPFilter "(userCertificate=*)" `
+                    -Properties "whenCreated", "userCertificate", "ObjectGUID" `
+                    -SearchBase $validBase `
+                    -ErrorAction Stop)
             }
             catch {
                 $invalidSearchBases += [pscustomobject]@{
@@ -49,14 +55,19 @@ function Get-RecentVDI {
     }
     else {
         $computers = @(Get-ADComputer @queryParams)
+        $certificateComputers = @(Get-ADComputer `
+            -LDAPFilter "(userCertificate=*)" `
+            -Properties "whenCreated", "userCertificate", "ObjectGUID")
     }
 
     $uniqueComputers = @($computers | Sort-Object DistinguishedName -Unique)
+    $uniqueCertificateComputers = @($certificateComputers | Sort-Object DistinguishedName -Unique)
 
     return [pscustomobject]@{
-        Computers          = $uniqueComputers
-        ValidSearchBases   = @($validSearchBases | Sort-Object -Unique)
-        InvalidSearchBases = @($invalidSearchBases)
-        CutoffUtc          = $cutoffUtc
+        Computers            = $uniqueComputers
+        CertificateComputers = $uniqueCertificateComputers
+        ValidSearchBases     = @($validSearchBases | Sort-Object -Unique)
+        InvalidSearchBases   = @($invalidSearchBases)
+        CutoffUtc            = $cutoffUtc
     }
 }

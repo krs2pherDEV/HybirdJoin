@@ -7,6 +7,7 @@ function Write-HJMLog {
         [bool]$DeltaTriggered,
         [string]$EntraStatus = "Unknown",
         [int]$EntraMatchCount = 0,
+        [string]$EntraMatchType = "None",
         [string]$Reason = "None",
         [string]$ErrorMessage = ""
     )
@@ -23,7 +24,7 @@ function Write-HJMLog {
     $cleanError = $ErrorMessage -replace "\r|\n", " "
     $cleanError = $cleanError -replace "\|", "/"
 
-    $entry = "$timestamp | $ComputerName | ADReady=$ADReady | EntraReady=$EntraReady | DeltaTriggered=$DeltaTriggered | EntraStatus=$EntraStatus | EntraMatchCount=$EntraMatchCount | Reason=$Reason"
+    $entry = "$timestamp | $ComputerName | ADReady=$ADReady | EntraReady=$EntraReady | DeltaTriggered=$DeltaTriggered | EntraStatus=$EntraStatus | EntraMatchCount=$EntraMatchCount | EntraMatchType=$EntraMatchType | Reason=$Reason"
     if (-not [string]::IsNullOrWhiteSpace($cleanError)) {
         $entry = "$entry | Error=$cleanError"
     }

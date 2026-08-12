@@ -51,10 +51,12 @@ Context:
 High-level flow in `HybridJoinMonitor.ps1`:
 1. Load configuration from `HybridJoinConfig.ps1`.
 2. Find recent VDI computer objects from AD (`Get-RecentVDI.ps1`).
-3. Check AD hybrid-join attributes (`Get-HybridJoinStatus.ps1`).
-4. Check Entra device visibility (`Get-EntraDeviceStatus.ps1`).
-5. If AD is ready but Entra is not found, attempt a throttled delta sync (`Invoke-DeltaSync.ps1`).
-6. Write structured logs (`Write-HJMLog.ps1`).
+3. Include older VDI objects when their `userCertificate` fingerprint is new or changed.
+4. Check AD hybrid-join registration details (`Get-HybridJoinStatus.ps1`).
+5. Check Entra visibility by certificate device ID when available (`Get-EntraDeviceStatus.ps1`).
+6. If AD is ready but that device is not found, attempt a throttled delta sync (`Invoke-DeltaSync.ps1`).
+7. Save certificate fingerprints only after Entra confirms the device, allowing failed or throttled checks to retry.
+8. Write structured logs (`Write-HJMLog.ps1`).
 
 ## Files
 
@@ -62,6 +64,7 @@ High-level flow in `HybridJoinMonitor.ps1`:
 - `HybridJoinConfig.ps1` : Customer-editable configuration.
 - `Get-RecentVDI.ps1` : Finds recently created AD computer objects.
 - `Get-HybridJoinStatus.ps1` : Checks for the AD computer's `userCertificate`, which indicates hybrid-join registration readiness.
+- `Get-HybridJoinState.ps1` : Persists certificate fingerprints for reused-object change detection.
 - `Get-EntraDeviceStatus.ps1` : Checks for Entra device presence and query errors.
 - `Invoke-DeltaSync.ps1` : Throttled trigger for Entra Connect delta sync.
 - `Write-HJMLog.ps1` : Appends structured records to log file.
@@ -118,6 +121,15 @@ Edit `HybridJoinConfig.ps1`.
   - If empty, search is not OU-scoped.
   - Invalid entries are logged as config errors.
 
+- `LogPath`
+  - Optional path for the structured operational log.
+  - Defaults to `HybridJoin.log` in the script directory.
+
+- `StatePath`
+  - Optional path for persisted certificate fingerprints.
+  - Defaults to `HybridJoinState.json` in the script directory.
+  - The scheduled-task account requires read, write, create, and rename permissions on its directory.
+
 ### Distinguished Name Examples
 
 Use full DN format:
@@ -137,6 +149,8 @@ $HybridJoinConfig = @{
         "OU=HorizonVDI,OU=Desktops,DC=contoso,DC=com",
         "OU=InstantClones,OU=VDI,DC=contoso,DC=com"
     )
+    LogPath = ""
+    StatePath = ""
 }
 ```
 
@@ -206,7 +220,7 @@ Get-Content .\HybridJoin.log -Tail 100
 Each entry is pipe-delimited:
 
 ```text
-yyyy-MM-dd HH:mm:ss | ComputerName | ADReady=<bool> | EntraReady=<bool> | DeltaTriggered=<bool> | EntraStatus=<status> | EntraMatchCount=<int> | Reason=<reason> | Error=<optional>
+yyyy-MM-dd HH:mm:ss | ComputerName | ADReady=<bool> | EntraReady=<bool> | DeltaTriggered=<bool> | EntraStatus=<status> | EntraMatchCount=<int> | EntraMatchType=<type> | Reason=<reason> | Error=<optional>
 ```
 
 ### Common Reason Values
@@ -214,6 +228,8 @@ yyyy-MM-dd HH:mm:ss | ComputerName | ADReady=<bool> | EntraReady=<bool> | DeltaT
 - `RunStart` : Run started with config summary.
 - `InvalidSearchBase` : OU DN is invalid or inaccessible.
 - `MissingCommand` : Required command not available.
+- `StateReadError` : Certificate state could not be loaded.
+- `StateWriteError` : Certificate state could not be saved.
 - `ADNotReady` : AD attributes not yet ready.
 - `AlreadyInEntra` : Device is already present in Entra.
 - `DeltaSyncTriggered` : Delta sync started.
@@ -265,6 +281,14 @@ Get-ADComputer -Identity "VDIComputerName" -Properties userCertificate |
 
 - `msDS-KeyCredentialLink` is not required by this monitor. It stores key credentials used by features such as Windows Hello for Business and is not a hybrid-join readiness signal.
 - For reused VDI names, verify the Entra result is the current device rather than a stale object with the same display name.
+
+### Reused AD computer objects
+
+- The monitor scans certificate-bearing computers in the configured VDI OUs and compares their certificate fingerprints with `HybridJoinState.json`.
+- A certificate added or replaced on an older computer object is processed even when its `whenCreated` value is outside `RecentMinutes`.
+- On the first run after this update, existing certificate-bearing VDI objects establish the baseline and may generate additional Graph queries. Subsequent runs process only recent objects or certificate changes.
+- `EntraMatchType=DeviceId` identifies the certificate identity. `EntraMatchType=DisplayName` is a fallback; inspect duplicate or stale Entra objects when VDI names are reused.
+- Do not trigger synchronization from `whenChanged` or `uSNChanged` alone because unrelated AD updates also modify those values.
 
 ### `DeltaSyncSuppressedOrFailed` appears often
 
@@ -434,5 +458,6 @@ Report median and p95 values before and after implementation.
 ## Safety Notes
 
 - Script triggers Entra Connect delta sync only when criteria are met and interval allows it.
-- Log file and sync marker file are script-folder relative.
+- Log, state, and sync marker files default to the script folder unless configured otherwise.
+- Keep `HybridJoinState.json` on local reliable storage and grant modification access only to administrators and the scheduled-task identity.
 - Keep this folder secured since logs may include environment details.

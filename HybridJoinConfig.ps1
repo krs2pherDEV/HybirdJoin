@@ -7,7 +7,8 @@
 #
 # Leave empty to search across all synced computer objects.
 $HybridJoinConfig = @{
-    # Time window to consider newly created VDI computer objects.
+    # Time window to consider newly created VDI computer objects. Older objects
+    # are also processed when their userCertificate fingerprint changes.
     RecentMinutes = 20
 
     # Minimum wait time between AAD Connect delta sync cycles.
@@ -25,4 +26,9 @@ $HybridJoinConfig = @{
     # that may not have write access to the script directory.
     # Example: "C:\Logs\HybridJoinMonitor\HybridJoin.log"
     LogPath = ""
+
+    # Path for certificate fingerprint state. Leave empty to write
+    # HybridJoinState.json to the script directory.
+    # Example: "C:\ProgramData\HybridJoinMonitor\HybridJoinState.json"
+    StatePath = ""
 }

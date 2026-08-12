@@ -216,7 +216,8 @@ $configContent = @(
     "#",
     "# Leave empty to search across all synced computer objects.",
     "$" + "HybridJoinConfig = @{",
-    "    # Time window to consider newly created VDI computer objects.",
+    "    # Time window to consider newly created VDI computer objects. Older objects",
+    "    # are also processed when their userCertificate fingerprint changes.",
     "    RecentMinutes = $recentMinutes",
     "",
     "    # Minimum wait time between AAD Connect delta sync cycles.",
@@ -225,6 +226,12 @@ $configContent = @(
     "    VdiSearchBases = @(",
     ($baseLines -join ",`r`n"),
     "    )",
+    "",
+    "    # Leave empty to write HybridJoin.log to the script directory.",
+    '    LogPath = ""',
+    "",
+    "    # Leave empty to write HybridJoinState.json to the script directory.",
+    '    StatePath = ""',
     "}"
 ) -join "`r`n"
 

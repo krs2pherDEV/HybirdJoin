@@ -1,18 +1,27 @@
 # Get-EntraDeviceStatus.ps1
 function Get-EntraDeviceStatus {
     param(
-        [string]$ComputerName
+        [string]$ComputerName,
+        [string]$DeviceId
     )
 
     try {
-        $escapedComputerName = $ComputerName -replace "'", "''"
-        $devices = @(Get-MgDevice -Filter "displayName eq '$escapedComputerName'")
+        if (-not [string]::IsNullOrWhiteSpace($DeviceId)) {
+            $devices = @(Get-MgDevice -Filter "deviceId eq '$DeviceId'")
+            $matchType = "DeviceId"
+        }
+        else {
+            $escapedComputerName = $ComputerName -replace "'", "''"
+            $devices = @(Get-MgDevice -Filter "displayName eq '$escapedComputerName'")
+            $matchType = "DisplayName"
+        }
 
         if ($devices.Count -gt 0) {
             return [pscustomobject]@{
                 Status     = "Found"
                 IsPresent  = $true
                 MatchCount = $devices.Count
+                MatchType  = $matchType
                 Error      = $null
             }
         }
@@ -21,6 +30,7 @@ function Get-EntraDeviceStatus {
             Status     = "NotFound"
             IsPresent  = $false
             MatchCount = 0
+            MatchType  = $matchType
             Error      = $null
         }
     }
@@ -29,6 +39,7 @@ function Get-EntraDeviceStatus {
             Status     = "QueryError"
             IsPresent  = $false
             MatchCount = 0
+            MatchType  = "None"
             Error      = $_.Exception.Message
         }
     }
